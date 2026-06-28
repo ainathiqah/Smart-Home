@@ -8,6 +8,10 @@ A web-based dashboard for monitoring and managing the indoor environment of a sm
 
 The login page is the entry point to the system. Users log in with a username and password, or register a new account if they don't have one yet. Once logged in, each user can manage one or more rooms, each monitored by its own ESP32 device.
 
+<p align="center">
+  <img src="https://github.com/user-attachments/assets/58b48545-ada0-4e2a-a871-4a8ecd708c1b" alt="Dashboard Page" width="650">
+</p>
+
 ## What the System Does
 
 - Reads temperature, humidity, air quality, and light level from a room in real time
