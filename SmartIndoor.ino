@@ -18,7 +18,7 @@
 // Device ID is also set through this same portal (no IDE editing needed).
 // To re-open the portal later and change it, hold the push button down
 // while powering on / resetting the board.
-const char* SERVER_BASE = "http://10.232.154.91/FinalSensor_297545";
+const char* SERVER_BASE = "http://API_Address/FinalSensor_297545";
 String deviceId = "INDOOR_003";  // fallback default if nothing saved yet
 Preferences prefs;
 
