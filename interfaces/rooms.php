@@ -1,6 +1,6 @@
 <?php
-require_once "config/auth_check.php";
-require_once "config/db_config.php";
+require_once "../config/auth_check.php";
+require_once "../config/db_config.php";
 $conn = getDB();
 $active = "rooms";
 
