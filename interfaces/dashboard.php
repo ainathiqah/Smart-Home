@@ -59,7 +59,7 @@ if ($device_id) {
     $recentAlerts = $stmt->get_result()->fetch_all(MYSQLI_ASSOC);
     $stmt->close();
 
-    $stmt = $conn->prepare("SELECT COUNT(*) AS c, AVG(sensor_1) AS avg_temp FROM sensor_data WHERE device_id = ? AND created_at >= NOW() - INTERVAL 1 DAY");
+    $stmt = $conn->prepare("SELECT COUNT(*) AS c, AVG(temperature) AS avg_temp FROM sensor_data WHERE device_id = ? AND created_at >= NOW() - INTERVAL 1 DAY");
     $stmt->bind_param("s", $device_id);
     $stmt->execute();
     $todayStats = $stmt->get_result()->fetch_assoc();
@@ -111,12 +111,12 @@ $connectionStatus = $device_id ? getDeviceConnectionStatus($conn, $device_id) : 
                 <div class="alert-item">
                   <span class="badge badge-<?= htmlspecialchars($a['status']) ?>"><?= htmlspecialchars($a['status']) ?></span>
                   <span class="alert-item-text">
-                    <?= htmlspecialchars($a['sensor_1']) ?>&deg;C &middot; <?= htmlspecialchars($a['sensor_2']) ?>% &middot; Light <?= htmlspecialchars($a['light_level']) ?>
+                    <?= htmlspecialchars($a['temperature']) ?>&deg;C &middot; <?= htmlspecialchars($a['humidity']) ?>% &middot; Light <?= htmlspecialchars($a['light_level']) ?>
                   </span>
                   <span class="alert-item-time"><?= htmlspecialchars(substr($a['created_at'], 5, 11)) ?></span>
                 </div>
               <?php endforeach; ?>
-              <a href="analytics.php" class="alert-panel-link">View full history in Stats &rarr;</a>
+              <a href="analytics.php" class="alert-panel-link">View full history in Statistics &rarr;</a>
             <?php endif; ?>
           </div>
         </details>
@@ -144,17 +144,22 @@ $connectionStatus = $device_id ? getDeviceConnectionStatus($conn, $device_id) : 
         'CRITICAL' => ['label' => 'Critical', 'icon' => 'fa-circle-exclamation', 'msg' => 'Unsafe conditions detected! Immediate action recommended.'],
       ];
       $sm = $statusMeta[$latest['status']] ?? $statusMeta['NORMAL'];
+
+      $reasons = buildStatusReasons($latest, $settings);
+      if (!empty($reasons)) {
+        $sm['msg'] = implode(' ', $reasons);
+      }
     ?>
-    <div class="device-line">
-      <span class="conn-dot-inline conn-dot-<?= $connectionStatus === 'Connected' ? 'on' : 'off' ?>"></span>
-      Device <?= $connectionStatus === 'Connected' ? 'Online' : 'Offline' ?> &middot; ID: <?= htmlspecialchars($device_id) ?>
+    <div class="device-line" id="device-line">
+      <span class="conn-dot-inline conn-dot-<?= $connectionStatus === 'Connected' ? 'on' : 'off' ?>" id="device-conn-dot"></span>
+      Device <span id="device-conn-text"><?= $connectionStatus === 'Connected' ? 'Online' : 'Offline' ?></span> &middot; ID: <?= htmlspecialchars($device_id) ?>
     </div>
 
-    <div class="status-banner status-banner-<?= htmlspecialchars($latest['status']) ?>">
-      <i class="fa-solid <?= $sm['icon'] ?>"></i>
+    <div class="status-banner status-banner-<?= htmlspecialchars($latest['status']) ?>" id="status-banner">
+      <i class="fa-solid <?= $sm['icon'] ?>" id="status-icon"></i>
       <div>
-        <div class="status-banner-title"><?= $sm['label'] ?></div>
-        <div class="status-banner-msg"><?= $sm['msg'] ?></div>
+        <div class="status-banner-title" id="status-title"><?= $sm['label'] ?></div>
+        <div class="status-banner-msg" id="status-msg"><?= $sm['msg'] ?></div>
       </div>
     </div>
 
@@ -162,26 +167,26 @@ $connectionStatus = $device_id ? getDeviceConnectionStatus($conn, $device_id) : 
       <div class="card card-temp">
         <div class="card-icon"><i class="fa-solid fa-temperature-half"></i></div>
         <h3>Temperature</h3>
-        <div class="value"><?= htmlspecialchars($latest['sensor_1']) ?>&deg;C</div>
-        <div class="sub">Threshold: <?= htmlspecialchars($settings['threshold_1']) ?>&deg;C</div>
+        <div class="value" id="kpi-temp"><?= htmlspecialchars($latest['temperature']) ?>&deg;C</div>
+        <div class="sub">Threshold: <?= htmlspecialchars($settings['temp_threshold']) ?>&deg;C</div>
       </div>
       <div class="card card-hum">
         <div class="card-icon"><i class="fa-solid fa-droplet"></i></div>
         <h3>Humidity</h3>
-        <div class="value"><?= htmlspecialchars($latest['sensor_2']) ?>%</div>
+        <div class="value" id="kpi-hum"><?= htmlspecialchars($latest['humidity']) ?>%</div>
         <div class="sub">Relative humidity</div>
       </div>
       <div class="card card-air">
         <div class="card-icon"><i class="fa-solid fa-wind"></i></div>
         <h3>Air Quality</h3>
-        <div class="value"><?= $latest['sensor_3'] == 0 ? 'GAS' : 'NORMAL' ?></div>
+        <div class="value" id="kpi-air"><?= $latest['air_quality'] == 0 ? 'GAS' : 'NORMAL' ?></div>
         <div class="sub">MQ-2 sensor</div>
       </div>
       <div class="card card-light">
         <div class="card-icon"><i class="fa-solid fa-sun"></i></div>
         <h3>Light Level</h3>
-        <div class="value"><?= htmlspecialchars($latest['light_level']) ?></div>
-        <div class="sub">Raw LDR reading</div>
+        <div class="value" id="kpi-light"><?= htmlspecialchars($latest['light_level']) ?>%</div>
+        <div class="sub">Brightness (0% dark - 100% bright)</div>
       </div>
     </div>
 
@@ -207,16 +212,16 @@ $connectionStatus = $device_id ? getDeviceConnectionStatus($conn, $device_id) : 
       <div class="panel">
         <h2><span class="panel-icon panel-icon-snapshot"><i class="fa-solid fa-house-signal"></i></span> Room Snapshot</h2>
         <div class="snapshot-row"><span>Device ID</span><strong><?= htmlspecialchars($device_id) ?></strong></div>
-        <div class="snapshot-row"><span>Connection</span><strong class="status-<?= $connectionStatus === 'Connected' ? 'NORMAL' : 'CRITICAL' ?>"><?= htmlspecialchars($connectionStatus) ?></strong></div>
-        <div class="snapshot-row"><span>Last Updated</span><strong><?= htmlspecialchars($latest['created_at']) ?></strong></div>
-        <div class="snapshot-row"><span>Total Records</span><strong><?= $totalRecords ?></strong></div>
+        <div class="snapshot-row"><span>Connection</span><strong class="status-<?= $connectionStatus === 'Connected' ? 'NORMAL' : 'CRITICAL' ?>" id="snap-connection"><?= htmlspecialchars($connectionStatus) ?></strong></div>
+        <div class="snapshot-row"><span>Last Updated</span><strong id="snap-updated"><?= htmlspecialchars($latest['created_at']) ?></strong></div>
+        <div class="snapshot-row"><span>Total Records</span><strong id="snap-total"><?= $totalRecords ?></strong></div>
       </div>
 
       <div class="panel">
         <h2><span class="panel-icon panel-icon-insight"><i class="fa-solid fa-chart-simple"></i></span> Today's Insight</h2>
-        <div class="snapshot-row"><span>Readings Today</span><strong><?= $todayStats['c'] ?? 0 ?></strong></div>
-        <div class="snapshot-row"><span>Average Temperature</span><strong><?= $todayStats['avg_temp'] !== null ? round($todayStats['avg_temp'], 1) . "&deg;C" : "-" ?></strong></div>
-        <div class="snapshot-row"><span>Warning/Critical (24h)</span><strong><?= $activeWarnings ?></strong></div>
+        <div class="snapshot-row"><span>Readings Today</span><strong id="snap-readings-today"><?= $todayStats['c'] ?? 0 ?></strong></div>
+        <div class="snapshot-row"><span>Average Temperature</span><strong id="snap-avg-temp"><?= $todayStats['avg_temp'] !== null ? round($todayStats['avg_temp'], 1) . "&deg;C" : "-" ?></strong></div>
+        <div class="snapshot-row"><span>Warning/Critical (24h)</span><strong id="snap-warnings"><?= $activeWarnings ?></strong></div>
       </div>
 
       <div class="panel">
@@ -230,7 +235,7 @@ $connectionStatus = $device_id ? getDeviceConnectionStatus($conn, $device_id) : 
             Conditions have been stable. No action needed right now.
           <?php endif; ?>
         </p>
-        <a href="analytics.php" class="alert-panel-link" style="text-align:left;margin-top:10px;">See full trends in Stats &rarr;</a>
+        <a href="analytics.php" class="alert-panel-link" style="text-align:left;margin-top:10px;">See full trends in Statistics &rarr;</a>
       </div>
     </div>
     <?php elseif ($device_id): ?>
@@ -248,5 +253,50 @@ $connectionStatus = $device_id ? getDeviceConnectionStatus($conn, $device_id) : 
 
   </div>
 </div>
+<?php if ($latest): ?>
+<script>
+const STATUS_META = {
+  NORMAL:   { label: "Safe",     icon: "fa-circle-check",        msg: "All conditions are within safe limits." },
+  WARNING:  { label: "Warning",  icon: "fa-triangle-exclamation", msg: "Some readings are outside the safe range. Monitor closely." },
+  CRITICAL: { label: "Critical", icon: "fa-circle-exclamation",   msg: "Unsafe conditions detected! Immediate action recommended." },
+};
+
+function refreshDashboard() {
+  fetch("../api/api_get_latest.php")
+    .then(res => res.json())
+    .then(data => {
+      if (data.error) return;
+
+      document.getElementById("kpi-temp").textContent = data.temp + "°C";
+      document.getElementById("kpi-hum").textContent = data.humidity + "%";
+      document.getElementById("kpi-air").textContent = data.air;
+      document.getElementById("kpi-light").textContent = data.light + "%";
+
+      const sm = STATUS_META[data.status] || STATUS_META.NORMAL;
+      const banner = document.getElementById("status-banner");
+      banner.className = "status-banner status-banner-" + data.status;
+      document.getElementById("status-icon").className = "fa-solid " + sm.icon;
+      document.getElementById("status-title").textContent = sm.label;
+      document.getElementById("status-msg").textContent =
+        (data.reasons && data.reasons.length > 0) ? data.reasons.join(" ") : sm.msg;
+
+      document.getElementById("device-conn-dot").className = "conn-dot-inline conn-dot-" + (data.connected ? "on" : "off");
+      document.getElementById("device-conn-text").textContent = data.connected ? "Online" : "Offline";
+
+      document.getElementById("snap-connection").textContent = data.connected ? "Connected" : "Disconnected";
+      document.getElementById("snap-connection").className = data.connected ? "status-NORMAL" : "status-CRITICAL";
+      document.getElementById("snap-updated").textContent = data.created_at;
+      document.getElementById("snap-total").textContent = data.total_records;
+
+      document.getElementById("snap-readings-today").textContent = data.readings_today;
+      document.getElementById("snap-avg-temp").textContent = data.avg_temp_today !== null ? data.avg_temp_today + "°C" : "-";
+      document.getElementById("snap-warnings").textContent = data.active_warnings;
+    })
+    .catch(() => {}); // silently skip this tick if the request fails; next interval will retry
+}
+
+setInterval(refreshDashboard, 5000);
+</script>
+<?php endif; ?>
 </body>
 </html>

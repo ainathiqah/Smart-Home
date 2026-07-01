@@ -69,3 +69,23 @@ function getDeviceConnectionStatus($conn, $device_id) {
     $maxGap = max($row['upload_interval'] * 2, 20);
     return $row['seconds_since_last'] <= $maxGap ? "Connected" : "Disconnected";
 }
+
+// Compares the latest reading against the room's saved thresholds and explains
+// which specific reading(s) triggered a WARNING/CRITICAL status banner.
+function buildStatusReasons($latest, $settings) {
+    $reasons = [];
+
+    if ((float)$latest['temperature'] >= (float)$settings['temp_threshold']) {
+        $reasons[] = "Temperature is too high (" . round($latest['temperature'], 1) . "\u{00B0}C).";
+    }
+
+    if ((float)$latest['humidity'] >= (float)$settings['humidity_threshold']) {
+        $reasons[] = "Humidity is too high (" . round($latest['humidity'], 1) . "%).";
+    }
+
+    if ((int)$latest['air_quality'] <= (int)$settings['air_threshold']) {
+        $reasons[] = "Poor air quality detected (gas/smoke).";
+    }
+
+    return $reasons;
+}

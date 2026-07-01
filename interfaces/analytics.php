@@ -12,7 +12,7 @@ if (!isset($_SESSION['active_device'])) {
 $device_id = getActiveDeviceId($conn, $_SESSION['user_id']);
 
 if (!$device_id) {
-    $pageTitle = "Stats";
+    $pageTitle = "Statistics";
     include "no_room.php";
     exit;
 }
@@ -42,8 +42,8 @@ $stmt->execute();
 $trendRows = array_reverse($stmt->get_result()->fetch_all(MYSQLI_ASSOC));
 
 $labels = array_map(fn($r) => substr($r['created_at'], 11, 5), $trendRows);
-$temps = array_map(fn($r) => (float)$r['sensor_1'], $trendRows);
-$hums = array_map(fn($r) => (float)$r['sensor_2'], $trendRows);
+$temps = array_map(fn($r) => (float)$r['temperature'], $trendRows);
+$hums = array_map(fn($r) => (float)$r['humidity'], $trendRows);
 
 // ---- History table (filterable: all / warning / critical, paginated 10/page) ----
 $filter = $_GET['filter'] ?? 'all';
@@ -69,12 +69,12 @@ $stmt->execute();
 $warnings = $stmt->get_result();
 
 // ---- Insight stats ----
-$stmt = $conn->prepare("SELECT AVG(sensor_1) AS avg_temp FROM sensor_data WHERE device_id = ?");
+$stmt = $conn->prepare("SELECT AVG(temperature) AS avg_temp FROM sensor_data WHERE device_id = ?");
 $stmt->bind_param("s", $device_id);
 $stmt->execute();
 $avgTemp = $stmt->get_result()->fetch_assoc()['avg_temp'];
 
-$stmt = $conn->prepare("SELECT COUNT(*) AS c FROM sensor_data WHERE device_id = ? AND sensor_3 = 0");
+$stmt = $conn->prepare("SELECT COUNT(*) AS c FROM sensor_data WHERE device_id = ? AND air_quality = 0");
 $stmt->bind_param("s", $device_id);
 $stmt->execute();
 $poorAirCount = $stmt->get_result()->fetch_assoc()['c'];
@@ -95,14 +95,14 @@ $stmt->execute();
 $lightRows = $stmt->get_result()->fetch_all(MYSQLI_ASSOC);
 $dark = $dim = $bright = 0;
 foreach ($lightRows as $r) {
-    $v = (int)$r['light_level'];
-    if ($v > 3000) $dark++;
-    elseif ($v > 1500) $dim++;
+    $v = (int)$r['light_level']; // now a 0-100% brightness value, not a raw ADC reading
+    if ($v < 30) $dark++;
+    elseif ($v < 60) $dim++;
     else $bright++;
 }
 $totalLight = max(count($lightRows), 1);
 
-// ---- Rule-based recommendation (placeholder for future Ollama integration) ----
+// ---- Rule-based recommendation (used as a fallback if the AI call below fails) ----
 $recommendation = "Conditions look normal. No action needed.";
 if ($avgTemp !== null && $avgTemp >= 32) {
     $recommendation = "Average temperature is high (" . round($avgTemp, 1) . "&deg;C). Consider improving ventilation or running the fan more frequently.";
@@ -111,12 +111,91 @@ if ($avgTemp !== null && $avgTemp >= 32) {
 } elseif ($dark > ($totalLight * 0.5)) {
     $recommendation = "The room is dark most of the time. Consider adding more lighting or adjusting the light threshold.";
 }
+
+// ---- Decide the single most important issue in PHP first (deterministic),
+// then only ask the AI to phrase a sentence about THAT issue. A 1.2B-parameter
+// model is too small to reliably judge which of several numbers matters most -
+// it tends to default to whichever fact sounds easiest, e.g. "dark 0% of the
+// time" - so we don't give it that choice to get wrong.
+function pickTopIssue($avgTemp, $poorAirCount, $warningCount, $criticalCount, $darkPercent) {
+    if ($criticalCount > 0) {
+        return "{$criticalCount} critical air-quality/gas events were recorded";
+    }
+    if ($avgTemp !== null && $avgTemp >= 32) {
+        return "average temperature is high at {$avgTemp} degrees C";
+    }
+    if ($poorAirCount > 5) {
+        return "poor air quality was detected {$poorAirCount} times";
+    }
+    if ($warningCount > 5) {
+        return "{$warningCount} warning events were recorded";
+    }
+    if ($darkPercent > 50) {
+        return "the room was dark {$darkPercent}% of the time";
+    }
+    return "conditions have stayed within safe, comfortable limits";
+}
+
+// ---- AI-generated recommendation via local Ollama, with the rule-based one above as fallback ----
+function getOllamaRecommendation($avgTemp, $poorAirCount, $warningCount, $criticalCount, $darkPercent) {
+    $topIssue = pickTopIssue($avgTemp, $poorAirCount, $warningCount, $criticalCount, $darkPercent);
+
+    $prompt = "You are a smart home assistant. The main thing worth mentioning about this room is: "
+        . "{$topIssue}. Write ONE short, friendly recommendation in 12 words or fewer for the "
+        . "homeowner about specifically this issue. "
+        . "Reply with only the recommendation sentence, no preamble, no explanation.";
+
+    $ch = curl_init("http://localhost:11434/api/generate");
+    curl_setopt($ch, CURLOPT_POST, true);
+    curl_setopt($ch, CURLOPT_POSTFIELDS, json_encode([
+        "model" => "llama3.2:1b",
+        "prompt" => $prompt,
+        "stream" => false,
+        "options" => [
+            "num_predict" => 40, // hard cap on generated tokens, keeps the reply short even if the model ignores the word limit
+        ],
+    ]));
+    curl_setopt($ch, CURLOPT_HTTPHEADER, ["Content-Type: application/json"]);
+    curl_setopt($ch, CURLOPT_RETURNTRANSFER, true);
+    curl_setopt($ch, CURLOPT_TIMEOUT, 8); // fail fast and fall back if Ollama is slow/unavailable
+
+    $res = curl_exec($ch);
+    $failed = curl_errno($ch) !== 0;
+    curl_close($ch);
+
+    if ($failed || !$res) return null;
+
+    $data = json_decode($res, true);
+    if (!isset($data['response'])) return null;
+
+    $text = trim($data['response']);
+
+    // Safety net: truncate to the first sentence / 18 words if the model still runs long
+    $words = preg_split('/\s+/', $text);
+    if (count($words) > 18) {
+        $text = implode(' ', array_slice($words, 0, 18)) . '...';
+    }
+
+    return $text;
+}
+
+$darkPercent = round(($dark / $totalLight) * 100);
+$aiRecommendation = getOllamaRecommendation(
+    $avgTemp !== null ? round($avgTemp, 1) : 0,
+    $poorAirCount,
+    $warningCount,
+    $criticalCount,
+    $darkPercent
+);
+if ($aiRecommendation !== null && $aiRecommendation !== "") {
+    $recommendation = htmlspecialchars($aiRecommendation);
+}
 ?>
 <!DOCTYPE html>
 <html>
 <head>
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title>Stats - Smart Home</title>
+<title>Statistics - Smart Home</title>
 <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.5.1/css/all.min.css">
 <link rel="stylesheet" href="style.css?v=<?= filemtime(__DIR__ . "/style.css") ?>">
 <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
@@ -126,7 +205,7 @@ if ($avgTemp !== null && $avgTemp >= 32) {
   <?php include "sidebar.php"; ?>
   <div class="main">
     <div class="topbar">
-      <h1>Stats</h1>
+      <h1>Statistics</h1>
       <div class="profile-chip"><i class="fa-solid fa-circle-user"></i> <?= htmlspecialchars($_SESSION['username']) ?></div>
     </div>
 
@@ -152,12 +231,18 @@ if ($avgTemp !== null && $avgTemp >= 32) {
       <div class="card card-light">
         <div class="card-icon"><i class="fa-solid fa-sun"></i></div>
         <h3>Light Usage</h3>
-        <div class="value" style="font-size:16px;">
+        <?php
+          $lightPercents = ['Bright' => $bright, 'Dim' => $dim, 'Dark' => $dark];
+          arsort($lightPercents);
+          $dominantLabel = array_key_first($lightPercents);
+          $dominantPct = round($lightPercents[$dominantLabel] / $totalLight * 100);
+        ?>
+        <div class="value"><?= $dominantLabel ?> <span style="font-size:16px;color:#5c6b85;"><?= $dominantPct ?>%</span></div>
+        <div class="sub">
           Bright <?= round($bright / $totalLight * 100) ?>% &middot;
           Dim <?= round($dim / $totalLight * 100) ?>% &middot;
           Dark <?= round($dark / $totalLight * 100) ?>%
         </div>
-        <div class="sub">Based on all-time readings</div>
       </div>
       <div class="card card-insight">
         <div class="card-icon"><i class="fa-solid fa-lightbulb"></i></div>
@@ -201,9 +286,9 @@ if ($avgTemp !== null && $avgTemp >= 32) {
             <?php while ($row = $warnings->fetch_assoc()): ?>
             <tr>
               <td><?= htmlspecialchars($row['created_at']) ?></td>
-              <td><?= htmlspecialchars($row['sensor_1']) ?>&deg;C</td>
-              <td><?= htmlspecialchars($row['sensor_2']) ?>%</td>
-              <td><?= $row['sensor_3'] == 0 ? 'GAS' : 'NORMAL' ?></td>
+              <td><?= htmlspecialchars($row['temperature']) ?>&deg;C</td>
+              <td><?= htmlspecialchars($row['humidity']) ?>%</td>
+              <td><?= $row['air_quality'] == 0 ? 'GAS' : 'NORMAL' ?></td>
               <td><?= htmlspecialchars($row['light_level']) ?></td>
               <td><span class="badge badge-<?= htmlspecialchars($row['status']) ?>"><?= htmlspecialchars($row['status']) ?></span></td>
             </tr>

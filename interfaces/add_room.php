@@ -12,7 +12,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
     if ($room_name === '' || $device_id === '') {
         $error = "Please fill in both fields.";
     } else {
-        $stmt = $conn->prepare("INSERT INTO device_settings (user_id, device_id, room_name, threshold_1, threshold_2, humidity_threshold, air_threshold, upload_interval, output_mode) VALUES (?, ?, ?, 34, 3000, 70, 0, 10, 'AUTO')");
+        $stmt = $conn->prepare("INSERT INTO device_settings (user_id, device_id, room_name, temp_threshold, light_threshold, humidity_threshold, air_threshold, upload_interval, output_mode) VALUES (?, ?, ?, 34, 30, 70, 0, 10, 'AUTO')");
         $stmt->bind_param("iss", $_SESSION['user_id'], $device_id, $room_name);
         if ($stmt->execute()) {
             header("Location: rooms.php");

@@ -11,7 +11,7 @@
       <i class="fa-solid fa-gear"></i><span>Settings</span>
     </a>
     <a href="analytics.php" class="<?= $active === 'analytics' ? 'active' : '' ?>" title="Analytics">
-      <i class="fa-solid fa-chart-line"></i><span>Stats</span>
+      <i class="fa-solid fa-chart-line"></i><span>Statistics</span>
     </a>
   </div>
   <a href="logout.php" class="logout-link" title="Logout">

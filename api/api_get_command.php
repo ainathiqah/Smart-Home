@@ -11,7 +11,7 @@ if ($device_id === '') {
     exit;
 }
 
-$stmt = $conn->prepare("SELECT threshold_1, threshold_2, humidity_threshold, air_threshold, upload_interval, alert_enabled, output_mode FROM device_settings WHERE device_id = ?");
+$stmt = $conn->prepare("SELECT temp_threshold, light_threshold, humidity_threshold, air_threshold, upload_interval, alert_enabled, output_mode FROM device_settings WHERE device_id = ?");
 $stmt->bind_param("s", $device_id);
 $stmt->execute();
 $result = $stmt->get_result();
@@ -20,7 +20,7 @@ $row = $result->fetch_assoc();
 if (!$row) {
     echo json_encode([
         "temp_threshold" => 32,
-        "light_threshold" => 3000,
+        "light_threshold" => 30,
         "humidity_threshold" => 70,
         "air_threshold" => 0,
         "upload_interval" => 10,
@@ -31,8 +31,8 @@ if (!$row) {
 }
 
 echo json_encode([
-    "temp_threshold"  => (float)$row['threshold_1'],
-    "light_threshold" => (int)$row['threshold_2'],
+    "temp_threshold"  => (float)$row['temp_threshold'],
+    "light_threshold" => (int)$row['light_threshold'],
     "humidity_threshold" => (float)$row['humidity_threshold'],
     "air_threshold"   => (int)$row['air_threshold'],
     "upload_interval" => (int)$row['upload_interval'],

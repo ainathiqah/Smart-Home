@@ -18,7 +18,7 @@
 // Device ID is also set through this same portal (no IDE editing needed).
 // To re-open the portal later and change it, hold the push button down
 // while powering on / resetting the board.
-const char* SERVER_BASE = "http://10.232.154.91/FinalSensor_297545";
+const char* SERVER_BASE = "http://10.200.94.91/FinalSensor_297545";
 String deviceId = "INDOOR_003";  // fallback default if nothing saved yet
 Preferences prefs;
 
@@ -45,8 +45,9 @@ float tempLimit = 32;
 float humLimit = 70;
 
 int mq = 1;
-int lightVal = 0;
-int lightLimit = 3000;
+int lightVal = 0;       // raw ADC reading (0-4095), kept internally only
+int lightPercent = 0;   // 0% = totally dark, 100% = max brightness - this is what gets sent/displayed
+int lightLimit = 30;    // % threshold: below this = DARK, below 2x this = DIM, above = BRIGHT
 int airLimit = 0;
 int uploadSec = 10;
 
@@ -174,11 +175,10 @@ void setupOLED() {
 }
 
 // ================= LIGHT CLASSIFICATION =================
-// LDR module reading is reversed:
-// low value = bright, high value = dark
-String getLightStatus(int value) {
-  if (value > lightLimit) return "DARK";
-  if (value > lightLimit / 2) return "DIM";
+// lightPercent is already in human-readable terms: 0% = dark, 100% = bright.
+String getLightStatus(int percent) {
+  if (percent < lightLimit) return "DARK";
+  if (percent < lightLimit * 2) return "DIM";
   return "BRIGHT";
 }
 
@@ -190,8 +190,12 @@ void readSensors() {
   mq = digitalRead(MQ_PIN);
   lightVal = analogRead(LDR_PIN);
 
+  // LDR module's raw reading is reversed (low value = bright, high value = dark),
+  // so flip it into an intuitive 0-100% brightness scale before using it anywhere else.
+  lightPercent = round((1.0 - (float)lightVal / 4095.0) * 100.0);
+
   mqStatus = mq == LOW ? "GAS" : "NORMAL";
-  lightStatus = getLightStatus(lightVal);
+  lightStatus = getLightStatus(lightPercent);
 
   // Rule-based status classification
   status = "NORMAL";
@@ -285,7 +289,7 @@ void fetchSettings() {
   tempLimit = doc["temp_threshold"] | 32.0;
   humLimit = doc["humidity_threshold"] | 70.0;
   airLimit = doc["air_threshold"] | 0;
-  lightLimit = doc["light_threshold"] | 3000;
+  lightLimit = doc["light_threshold"] | 30;
   uploadSec = doc["upload_interval"] | 10;
 
   outputMode = doc["output_mode"].as<String>();
@@ -304,7 +308,7 @@ void uploadData() {
   url += "&temperature=" + String(isnan(temp) ? 0 : temp, 2);
   url += "&humidity=" + String(isnan(hum) ? 0 : hum, 2);
   url += "&air_quality=" + String(mq);
-  url += "&light_level=" + String(lightVal);
+  url += "&light_level=" + String(lightPercent);
   url += "&system_status=" + status;
   url += "&output_status=" + buzzerStatus;
 
@@ -372,7 +376,7 @@ void showOLED() {
   else if (page == 3) {
     display.println("Page 3: Light");
     display.println("----------------");
-    display.println("Raw: " + String(lightVal));
+    display.println("Light: " + String(lightPercent) + "%");
     display.println("Cond: " + lightStatus);
     display.println(lightStatus == "DARK" ? "Turn on light." : "Lighting OK.");
   }

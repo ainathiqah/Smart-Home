@@ -14,8 +14,8 @@ CREATE TABLE IF NOT EXISTS device_settings (
     device_id VARCHAR(50) NOT NULL UNIQUE,
     room_name VARCHAR(50) DEFAULT 'Room',
     wifi_status VARCHAR(20) DEFAULT 'disconnected',
-    threshold_1 FLOAT DEFAULT 32,      -- temp_threshold
-    threshold_2 INT DEFAULT 3000,      -- light_threshold
+    temp_threshold FLOAT DEFAULT 32,
+    light_threshold INT DEFAULT 30,  -- 0-100% brightness threshold
     humidity_threshold FLOAT DEFAULT 70,  -- indoor comfort ceiling per ASHRAE 55 / DOSH ICOP IAQ 2010 (40-70% RH)
     air_threshold INT DEFAULT 0,
     upload_interval INT DEFAULT 10,
@@ -29,9 +29,9 @@ CREATE TABLE IF NOT EXISTS device_settings (
 CREATE TABLE IF NOT EXISTS sensor_data (
     id INT AUTO_INCREMENT PRIMARY KEY,
     device_id VARCHAR(50) NOT NULL,
-    sensor_1 FLOAT,        -- temperature
-    sensor_2 FLOAT,        -- humidity
-    sensor_3 INT,          -- air quality (MQ digital: 0/1)
+    temperature FLOAT,
+    humidity FLOAT,
+    air_quality INT,       -- MQ-2 digital output: 0/1
     light_level INT,
     status VARCHAR(20),
     output_status VARCHAR(10),
@@ -44,10 +44,10 @@ INSERT INTO users (username, password_hash)
 VALUES ('admin', '$2y$10$VGz5ZHY5aRquMabcljBIEO8jP5o6nEYDoGXLwZFjDlb08eUIf8h92')
 ON DUPLICATE KEY UPDATE username = username;
 
-INSERT INTO device_settings (user_id, device_id, room_name, threshold_1, threshold_2, air_threshold, upload_interval, alert_enabled, output_mode)
+INSERT INTO device_settings (user_id, device_id, room_name, temp_threshold, light_threshold, air_threshold, upload_interval, alert_enabled, output_mode)
 VALUES (
     (SELECT id FROM users WHERE username = 'admin'),
-    'INDOOR_001', 'Living Room', 32, 3000, 0, 10, 1, 'AUTO'
+    'INDOOR_001', 'Living Room', 32, 30, 0, 10, 1, 'AUTO'
 )
 ON DUPLICATE KEY UPDATE device_id = device_id;
 

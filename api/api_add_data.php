@@ -15,7 +15,7 @@ if ($device_id === '') {
     exit;
 }
 
-$stmt = $conn->prepare("INSERT INTO sensor_data (device_id, sensor_1, sensor_2, sensor_3, light_level, status, output_status) VALUES (?, ?, ?, ?, ?, ?, ?)");
+$stmt = $conn->prepare("INSERT INTO sensor_data (device_id, temperature, humidity, air_quality, light_level, status, output_status) VALUES (?, ?, ?, ?, ?, ?, ?)");
 $stmt->bind_param("sddiiss", $device_id, $temperature, $humidity, $air_quality, $light_level, $system_status, $output_status);
 
 if ($stmt->execute()) {

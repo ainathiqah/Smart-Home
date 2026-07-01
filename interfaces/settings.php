@@ -20,8 +20,8 @@ if (!$device_id) {
 $settingsError = "";
 
 if ($_SERVER['REQUEST_METHOD'] === 'POST') {
-    $t1 = $_POST['threshold_1'] ?? '';
-    $t2 = $_POST['threshold_2'] ?? '';
+    $t1 = $_POST['temp_threshold'] ?? '';
+    $t2 = $_POST['light_threshold'] ?? '';
     $hum = $_POST['humidity_threshold'] ?? '';
     $air = $_POST['air_threshold'] ?? '';
     $interval = $_POST['upload_interval'] ?? '';
@@ -32,8 +32,8 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
         $settingsError = "All fields must be numbers.";
     } elseif ($t1 < 0 || $t1 > 60) {
         $settingsError = "Temperature threshold must be between 0 and 60°C.";
-    } elseif ($t2 < 0 || $t2 > 4095) {
-        $settingsError = "Light threshold must be between 0 and 4095 (raw ADC range).";
+    } elseif ($t2 < 0 || $t2 > 100) {
+        $settingsError = "Light threshold must be between 0 and 100%.";
     } elseif ($hum < 0 || $hum > 100) {
         $settingsError = "Humidity threshold must be between 0 and 100%.";
     } elseif ($air < 0 || $air > 1) {
@@ -41,7 +41,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
     } elseif ($interval < 5) {
         $settingsError = "Upload interval must be at least 5 seconds.";
     } else {
-        $stmt = $conn->prepare("UPDATE device_settings SET threshold_1=?, threshold_2=?, humidity_threshold=?, air_threshold=?, upload_interval=? WHERE device_id=?");
+        $stmt = $conn->prepare("UPDATE device_settings SET temp_threshold=?, light_threshold=?, humidity_threshold=?, air_threshold=?, upload_interval=? WHERE device_id=?");
         $stmt->bind_param("didiis", $t1, $t2, $hum, $air, $interval, $device_id);
         $stmt->execute();
         $stmt->close();
@@ -83,7 +83,7 @@ $stmt->close();
           <div class="threshold-input threshold-temp">
             <i class="fa-solid fa-temperature-half"></i>
             <button type="button" class="step-btn" onclick="stepValue(this, -1)">&minus;</button>
-            <input type="number" step="0.1" name="threshold_1" value="<?= htmlspecialchars($settings['threshold_1']) ?>" data-step="0.1" data-min="0" data-max="60">
+            <input type="number" step="0.1" name="temp_threshold" value="<?= htmlspecialchars($settings['temp_threshold']) ?>" data-step="0.1" data-min="0" data-max="60">
             <button type="button" class="step-btn" onclick="stepValue(this, 1)">+</button>
             <span class="threshold-unit">&deg;C</span>
           </div>
@@ -93,9 +93,9 @@ $stmt->close();
           <div class="threshold-input threshold-light">
             <i class="fa-solid fa-sun"></i>
             <button type="button" class="step-btn" onclick="stepValue(this, -1)">&minus;</button>
-            <input type="number" name="threshold_2" value="<?= htmlspecialchars($settings['threshold_2']) ?>" data-step="50" data-min="0" data-max="4095">
+            <input type="number" name="light_threshold" value="<?= htmlspecialchars($settings['light_threshold']) ?>" data-step="5" data-min="0" data-max="100">
             <button type="button" class="step-btn" onclick="stepValue(this, 1)">+</button>
-            <span class="threshold-unit">raw</span>
+            <span class="threshold-unit">%</span>
           </div>
         </div>
         <div class="form-row">
